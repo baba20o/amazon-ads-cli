@@ -1,0 +1,41 @@
+regions:
+  US:
+    profile_id: "2742491700997085"
+    api_endpoint: "https://advertising-api.amazon.com"
+    auth_endpoint: "https://api.amazon.com/auth/o2/token"
+    auth_region: "NA"
+  CA:
+    profile_id: "3001788905339747"
+    api_endpoint: "https://advertising-api.amazon.com"
+    auth_endpoint: "https://api.amazon.com/auth/o2/token"
+    auth_region: "NA"
+  GB:
+    profile_id: "990940303071489"
+    api_endpoint: "https://advertising-api-eu.amazon.com"
+    auth_endpoint: "https://api.amazon.co.uk/auth/o2/token"
+    auth_region: "EU"
+  DE:
+    profile_id: "204344011331293"
+    api_endpoint: "https://advertising-api-eu.amazon.com"
+    auth_endpoint: "https://api.amazon.co.uk/auth/o2/token"
+    auth_region: "EU"
+  FR:
+    profile_id: "3225893173522823"
+    api_endpoint: "https://advertising-api-eu.amazon.com"
+    auth_endpoint: "https://api.amazon.co.uk/auth/o2/token"
+    auth_region: "EU"
+  ES:
+    profile_id: "3464416487489499"
+    api_endpoint: "https://advertising-api-eu.amazon.com"
+    auth_endpoint: "https://api.amazon.co.uk/auth/o2/token"
+    auth_region: "EU"
+  IT:
+    profile_id: "2782204164552821"
+    api_endpoint: "https://advertising-api-eu.amazon.com"
+    auth_endpoint: "https://api.amazon.co.uk/auth/o2/token"
+    auth_region: "EU"
+  AU:
+    profile_id: "4206259885056553"
+    api_endpoint: "https://advertising-api-fe.amazon.com"
+    auth_endpoint: "https://api.amazon.co.jp/auth/o2/token"
+    auth_region: "FE"
