@@ -138,3 +138,50 @@ def test_acos_zero_sales(mock_client):
         summary = svc.get_performance_summary("US", timeframe="custom", start_date="2025-01-01", end_date="2025-01-31")
 
     assert summary["acos"] == 0.0
+
+
+# ── Report filters ────────────────────────────────────────────────────
+
+def test_create_report_with_campaign_filter(mock_client):
+    mock_client.post.return_value = _json_resp({"reportId": "rpt-f1"})
+    svc = ReportingService(mock_client)
+
+    svc.create_report("US", "2025-01-01", "2025-01-31", campaign_ids=["111", "222"])
+
+    body = mock_client.post.call_args[1]["body"]
+    filters = body["configuration"]["filters"]
+    assert len(filters) == 1
+    assert filters[0]["field"] == "campaignId"
+    assert filters[0]["values"] == ["111", "222"]
+
+
+def test_create_report_with_ad_group_filter(mock_client):
+    mock_client.post.return_value = _json_resp({"reportId": "rpt-f2"})
+    svc = ReportingService(mock_client)
+
+    svc.create_report("US", "2025-01-01", "2025-01-31", ad_group_ids=["ag1"])
+
+    body = mock_client.post.call_args[1]["body"]
+    filters = body["configuration"]["filters"]
+    assert len(filters) == 1
+    assert filters[0]["field"] == "adGroupId"
+
+
+def test_create_report_no_filters_omits_field(mock_client):
+    mock_client.post.return_value = _json_resp({"reportId": "rpt-nf"})
+    svc = ReportingService(mock_client)
+
+    svc.create_report("US", "2025-01-01", "2025-01-31")
+
+    body = mock_client.post.call_args[1]["body"]
+    assert "filters" not in body["configuration"]
+
+
+def test_create_report_custom_columns(mock_client):
+    mock_client.post.return_value = _json_resp({"reportId": "rpt-cc"})
+    svc = ReportingService(mock_client)
+
+    svc.create_report("US", "2025-01-01", "2025-01-31", columns=["campaignId", "cost", "clicks"])
+
+    body = mock_client.post.call_args[1]["body"]
+    assert body["configuration"]["columns"] == ["campaignId", "cost", "clicks"]

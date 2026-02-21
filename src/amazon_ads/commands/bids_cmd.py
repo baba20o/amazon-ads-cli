@@ -10,8 +10,11 @@ from rich.console import Console
 from amazon_ads.auth import AuthManager
 from amazon_ads.client import AmazonAdsClient
 from amazon_ads.config import get_config
-from amazon_ads.models.keywords import UpdateKeywordRequest
+from amazon_ads.models.keywords import UpdateKeywordRequest, UpdateProductTargetRequest
+from amazon_ads.services.ad_groups import AdGroupService
+from amazon_ads.services.campaigns import CampaignService
 from amazon_ads.services.keywords import KeywordService
+from amazon_ads.services.targeting import TargetingService
 from amazon_ads.utils.backup import backup_keywords, load_backup
 from amazon_ads.utils.errors import handle_error
 from amazon_ads.utils.output import OutputFormat, print_output
@@ -147,6 +150,146 @@ def restore_bids(
         results = service.update(region, updates)
         print_output(results, output, title=f"Bids Restored ({region})")
     except (RuntimeError, FileNotFoundError, ValueError) as e:
+        handle_error(e)
+        raise typer.Exit(1)
+    finally:
+        client.close()
+
+
+_TARGET_TYPE_LABELS = {
+    "QUERY_HIGH_REL_MATCHES": "Close Match",
+    "QUERY_BROAD_REL_MATCHES": "Loose Match",
+    "ASIN_SUBSTITUTE_RELATED": "Substitutes",
+    "ASIN_ACCESSORY_RELATED": "Complements",
+}
+
+
+@app.command("audit")
+def audit_bids(
+    region: Annotated[str, typer.Option("--region", "-r", help="Region (or 'ALL' for all regions)")] = "ALL",
+    threshold: Annotated[float, typer.Option("--threshold", "-t", help="Min absolute bid diff to flag")] = 0.0,
+    fix: Annotated[bool, typer.Option("--fix", help="Reset overrides back to ad group defaults")] = False,
+    dry_run: Annotated[bool, typer.Option("--dry-run", help="Preview fix without applying")] = False,
+    output: Annotated[OutputFormat, typer.Option("--output", "-o")] = OutputFormat.TABLE,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
+) -> None:
+    """Audit auto-targeting bid overrides on AUTO campaigns.
+
+    Compares targeting-group bids (Close Match, Loose Match, etc.) against
+    the ad group default bid.  Use --fix to reset overrides.
+    """
+    regions = ALL_REGIONS if region.upper() == "ALL" else [region.upper()]
+    client, _ = _build_client(verbose)
+    campaign_service = CampaignService(client)
+    ad_group_service = AdGroupService(client)
+    targeting_service = TargetingService(client)
+
+    try:
+        all_overrides: list[dict] = []
+
+        for reg in regions:
+            console.print(f"Auditing {reg}...")
+
+            campaigns = campaign_service.list(reg, state="ENABLED")
+            auto_camps = {
+                str(c["campaignId"]): c["name"]
+                for c in campaigns
+                if c.get("targetingType") == "AUTO"
+            }
+            if not auto_camps:
+                console.print(f"  No AUTO campaigns in {reg}")
+                continue
+
+            ad_groups = ad_group_service.list(reg, state="ENABLED")
+            ag_bids: dict[str, float] = {}
+            for ag in ad_groups:
+                cid = str(ag.get("campaignId", ""))
+                if cid in auto_camps:
+                    ag_bids[cid] = ag.get("defaultBid", 0) or 0
+
+            targets = targeting_service.list(reg, state="ENABLED")
+
+            region_count = 0
+            for t in targets:
+                cid = str(t.get("campaignId", ""))
+                if cid not in auto_camps:
+                    continue
+
+                target_bid = t.get("bid")
+                if target_bid is None:
+                    continue
+
+                ag_default = ag_bids.get(cid, 0)
+                if ag_default == 0:
+                    continue
+
+                diff = round(target_bid - ag_default, 2)
+                if abs(diff) <= threshold:
+                    continue
+
+                expr_type = (t.get("expression") or [{}])[0].get("type", "?")
+                all_overrides.append({
+                    "region": reg,
+                    "campaign": auto_camps[cid],
+                    "targetType": _TARGET_TYPE_LABELS.get(expr_type, expr_type),
+                    "currentBid": round(target_bid, 2),
+                    "defaultBid": round(ag_default, 2),
+                    "diff": diff,
+                    "diffPct": f"{diff / ag_default * 100:+.0f}%",
+                    "targetId": t.get("targetId", ""),
+                })
+                region_count += 1
+
+            console.print(f"  {reg}: {region_count} overrides found")
+
+        if not all_overrides:
+            console.print("[green]No auto-targeting bid overrides found.[/green]")
+            print_output([], output, title="Bid Audit")
+            return
+
+        above = sum(1 for o in all_overrides if o["diff"] > 0)
+        below = sum(1 for o in all_overrides if o["diff"] < 0)
+        console.print(
+            f"\nTotal: {len(all_overrides)} overrides "
+            f"({above} above default, {below} below default)"
+        )
+
+        columns = [
+            "region", "campaign", "targetType",
+            "currentBid", "defaultBid", "diff", "diffPct",
+        ]
+        if not fix:
+            print_output(all_overrides, output, columns=columns, title="Bid Audit")
+            return
+
+        # --fix mode: reset all overrides to ad group defaults
+        if dry_run:
+            console.print(
+                f"[yellow]DRY RUN:[/yellow] Would reset "
+                f"{len(all_overrides)} target bids"
+            )
+            print_output(all_overrides, output, columns=columns, title="Bid Audit [DRY RUN]")
+            return
+
+        # Group fixes by region and apply
+        from collections import defaultdict
+        by_region: dict[str, list[dict]] = defaultdict(list)
+        for o in all_overrides:
+            by_region[o["region"]].append(o)
+
+        for reg, overrides in by_region.items():
+            updates = [
+                UpdateProductTargetRequest(
+                    targetId=o["targetId"], bid=o["defaultBid"],
+                )
+                for o in overrides
+            ]
+            console.print(f"Resetting {len(updates)} targets in {reg}...")
+            targeting_service.update(reg, updates)
+
+        console.print(f"[green]Reset {len(all_overrides)} target bids.[/green]")
+        print_output(all_overrides, output, columns=columns, title="Bid Audit — Fixed")
+    except RuntimeError as e:
         handle_error(e)
         raise typer.Exit(1)
     finally:

@@ -186,13 +186,26 @@ amazon-ads bids update --region US --bid-value 0.50 --state ENABLED --dry-run
 
 # Restore from backup
 amazon-ads bids restore --region US --file backups/US_keywords_2024-01-15.json --dry-run
+
+# Fix auto-targeting overbids (reduce to recommended bid)
+amazon-ads bids fix-auto --region US --dry-run
+amazon-ads bids fix-auto --region ALL
 ```
 
 ### Reports
 
 ```bash
 # Create a report (async)
-amazon-ads reports create --region US --report-type spCampaigns --start-date 2024-01-01 --end-date 2024-01-31 --wait
+amazon-ads reports create --region US --report-type spCampaigns \
+  --start-date 2025-01-01 --end-date 2025-01-31 --wait
+
+# With filters
+amazon-ads reports create --region US --report-type spCampaigns \
+  --campaign-id 111,222,333 --start-date 2025-01-01 --end-date 2025-01-31
+
+# Custom columns
+amazon-ads reports create --region US --report-type spCampaigns \
+  --columns campaignId,cost,clicks --start-date 2025-01-01 --end-date 2025-01-31
 
 # Check report status
 amazon-ads reports status --region US --report-id abc123
@@ -202,6 +215,46 @@ amazon-ads reports summary --region ALL --timeframe monthly
 ```
 
 Report types: `spCampaigns`, `spKeywords`, `spSearchTerm`, `spTargeting`, `spAdvertisedProduct`
+
+**API limits:** Max 31-day date range per report. Data retention is ~3 months. For longer periods, use `reports submit` with monthly chunks.
+
+### Report Queue (Fire-and-Forget)
+
+Submit reports asynchronously, track them in a persistent queue, and download when ready. No more waiting 5+ minutes per report.
+
+```bash
+# Submit all 4 report types for a region (returns immediately)
+amazon-ads reports submit --region US \
+  --start-date 2025-12-01 --end-date 2025-12-31
+
+# Submit all types across all 8 regions (32 reports)
+amazon-ads reports submit --region ALL \
+  --start-date 2025-12-01 --end-date 2025-12-31
+
+# Submit just one report type
+amazon-ads reports submit --region US --report-type spKeywords \
+  --start-date 2025-12-01 --end-date 2025-12-31
+
+# View the queue
+amazon-ads reports queue
+amazon-ads reports queue --status DOWNLOADED --region US
+
+# Poll all pending reports (auto-downloads completed ones)
+amazon-ads reports poll
+amazon-ads reports poll --region US
+amazon-ads reports poll --no-download    # just update status
+
+# Download a specific report
+amazon-ads reports download --report-id abc123 --region US
+
+# Clean up old queue entries
+amazon-ads reports clean --days 7
+amazon-ads reports clean --all
+```
+
+Downloaded reports are saved to `data/reports/` as JSON files, named `{region}-{type}-{startDate}-{shortId}.json`.
+
+Queue state is persisted in `data/report_queue.json`. Status lifecycle: `SUBMITTED` -> `PROCESSING` -> `COMPLETED` -> `DOWNLOADED`.
 
 ### Optimization
 
@@ -247,6 +300,39 @@ amazon-ads onboard product \
 amazon-ads schema dump
 ```
 
+## Analysis Scripts
+
+The `scripts/` directory contains analysis scripts for working with downloaded report data:
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/analyze_reports.py` | Analyze a single period's report data (weekly/monthly) |
+| `scripts/analyze_3mo.py` | Combine and analyze multi-month report data |
+
+These scripts read from `data/reports/` and output performance breakdowns including:
+- Overall metrics (cost, sales, ACoS, CPC, conversion rate)
+- Monthly trends
+- Campaign-level performance rankings
+- AUTO vs MANUAL campaign comparison
+- Targeting type breakdown (BROAD, EXACT, PHRASE, etc.)
+- Money-burning campaigns (high spend, low/no sales)
+- Top and worst performing keywords and search terms
+
+### Example: 3-Month US Analysis
+
+```bash
+# 1. Submit monthly report chunks (API limit: 31 days per report)
+amazon-ads reports submit --region US --start-date 2025-11-18 --end-date 2025-12-18
+amazon-ads reports submit --region US --start-date 2025-12-19 --end-date 2026-01-18
+amazon-ads reports submit --region US --start-date 2026-01-19 --end-date 2026-02-18
+
+# 2. Poll until all are downloaded
+amazon-ads reports poll
+
+# 3. Run the analysis
+python scripts/analyze_3mo.py
+```
+
 ## Architecture
 
 ```
@@ -254,16 +340,22 @@ src/amazon_ads/
   main.py              # Typer app entry point
   config.py            # Settings + region profiles (Pydantic)
   auth.py              # OAuth2 token management
-  client.py            # HTTP client with retry (401/429/5xx)
+  client.py            # HTTP client with retry + response cache
   models/              # Pydantic request/response models
   services/            # Business logic (one per domain)
+    reporting.py       # Report creation, polling, download
+    report_queue.py    # Persistent report queue manager
   commands/            # CLI commands (one per command group)
   utils/
     output.py          # Table/JSON/CSV formatters
     pagination.py      # nextToken pagination helper
     chunking.py        # 1000-item batch splitting
     backup.py          # Bid backup/restore
+    cache.py           # Region-scoped API response cache
     errors.py          # Structured error handling
+
+scripts/               # Analysis scripts for report data
+data/reports/          # Downloaded report JSON files (gitignored)
 ```
 
 ### Design Principles
@@ -274,6 +366,8 @@ src/amazon_ads/
 - **Bulk-first** — All CRUD commands accept `--from-file` and `--from-stdin` for batch operations with automatic 1000-item chunking.
 - **Multi-region** — Most commands accept `--region ALL` to operate across all 8 marketplaces.
 - **Retry with backoff** — Automatic retry on 401 (token refresh), 429 (rate limit), and 5xx (server error).
+- **Response caching** — GET requests are cached per-region with automatic invalidation on mutations.
+- **Fire-and-forget reports** — Submit reports asynchronously, track in a persistent queue, download later.
 - **Agent-friendly** — Structured JSON error output, schema introspection endpoint, consistent exit codes.
 
 ## Dependencies
@@ -300,8 +394,11 @@ Optional (`pip install -e ".[ai]"`):
 # Install with dev dependencies
 pip install -e ".[dev]"
 
-# Run tests
+# Run tests (272 tests)
 pytest
+
+# Run specific test files
+pytest tests/test_report_queue.py tests/test_cmd_reports.py -v
 
 # Run with verbose logging
 amazon-ads --verbose campaigns list --region US

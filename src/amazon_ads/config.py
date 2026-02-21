@@ -29,6 +29,9 @@ class Settings(BaseModel):
     refresh_token: str = Field(description="OAuth refresh token (NA/FE)")
     refresh_token_eu: str = Field(default="", description="OAuth refresh token (EU)")
     backup_dir: str = Field(default="./backups", description="Directory for bid backups")
+    cache_ttl: int = Field(default=300, description="API response cache TTL in seconds")
+    cache_enabled: bool = Field(default=True, description="Enable API response caching")
+    queue_dir: str = Field(default="./data", description="Directory for report queue and downloads")
 
 
 class Config(BaseModel):
@@ -102,6 +105,9 @@ def _load_settings() -> Settings:
         refresh_token=_env("AMAZON_ADS_REFRESH_TOKEN", "refreshToken"),
         refresh_token_eu=_env("AMAZON_ADS_REFRESH_TOKEN_EU", "refreshTokenEU"),
         backup_dir=_env("AMAZON_ADS_BACKUP_DIR", default="./backups"),
+        cache_ttl=int(_env("AMAZON_ADS_CACHE_TTL", default="300")),
+        cache_enabled=_env("AMAZON_ADS_CACHE_ENABLED", default="true").lower() in ("true", "1", "yes"),
+        queue_dir=_env("AMAZON_ADS_QUEUE_DIR", default="./data"),
     )
 
 

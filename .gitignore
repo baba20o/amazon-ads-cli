@@ -10,3 +10,13 @@ backups/
 .claude/
 context/
 docs/plan.md
+
+# Downloaded report data & queue state
+data/reports/
+data/report_queue.json
+data/*.json
+data/*.log
+data/*.txt
+
+# Temp report outputs
+reports/

@@ -5,6 +5,7 @@ Handles header injection, retry logic, rate limiting, and token refresh.
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Any
@@ -13,6 +14,7 @@ import httpx
 
 from amazon_ads.auth import AuthManager
 from amazon_ads.config import Config
+from amazon_ads.utils.cache import ResponseCache
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +35,24 @@ CONTENT_TYPES = {
 }
 
 
+class _CachedResponse:
+    """Minimal response wrapper for cached data, duck-type compatible with httpx.Response."""
+
+    def __init__(self, data: Any) -> None:
+        self._data = data
+        self.status_code = 200
+
+    def json(self) -> Any:
+        return self._data
+
+    @property
+    def text(self) -> str:
+        return json.dumps(self._data)
+
+    def raise_for_status(self) -> None:
+        pass
+
+
 class AmazonAdsClient:
     """HTTP client for Amazon Advertising API with retry and auth handling."""
 
@@ -50,6 +70,10 @@ class AmazonAdsClient:
         self._retry_delay = retry_delay
         self._verbose = verbose
         self._http = httpx.Client(timeout=60.0)
+        self._cache = ResponseCache(
+            ttl=config.settings.cache_ttl,
+            enabled=config.settings.cache_enabled,
+        )
 
     def request(
         self,
@@ -83,6 +107,19 @@ class AmazonAdsClient:
         """
         profile = self._config.get_region(region)
         url = profile.api_endpoint + path
+
+        # Cache: check for cached response on read operations
+        cacheable = self._cache.enabled and ResponseCache.is_cacheable_request(method, path)
+        cache_key = ""
+        if cacheable:
+            cache_key = self._cache.make_key(method, path, region, body)
+            cached = self._cache.get(cache_key)
+            if cached is not None:
+                return _CachedResponse(cached)
+
+        # Cache: invalidate on write operations
+        if self._cache.enabled and ResponseCache.is_write_request(method, path):
+            self._cache.invalidate_region(region)
 
         for attempt in range(1, self._max_retries + 1):
             headers = self._build_headers(region, content_type, accept, extra_headers)
@@ -143,6 +180,13 @@ class AmazonAdsClient:
                 raise RuntimeError(
                     f"API error (HTTP {response.status_code}): {error_detail}"
                 )
+
+            # Cache: store successful read responses
+            if cacheable and cache_key:
+                try:
+                    self._cache.put(cache_key, response.json(), region)
+                except Exception:
+                    pass
 
             return response
 

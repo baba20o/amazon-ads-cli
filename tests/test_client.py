@@ -266,3 +266,71 @@ def test_eu_url(client):
 
     url = client._http.request.call_args[1]["url"]
     assert url == "https://advertising-api-eu.amazon.com/sp/campaigns/list"
+
+
+# ── Cache integration ────────────────────────────────────────────────
+
+from amazon_ads.utils.cache import ResponseCache
+
+
+def test_post_list_is_cached(client):
+    """POST to /list endpoints should be cached on second call."""
+    cache = ResponseCache(ttl=60)
+    client._cache = cache
+    client._http.request.return_value = _resp(200, json_data={"campaigns": []})
+
+    client.post("/sp/campaigns/list", "US", body={"maxResults": 100})
+    client.post("/sp/campaigns/list", "US", body={"maxResults": 100})
+
+    assert client._http.request.call_count == 1
+
+
+def test_post_create_not_cached(client):
+    """POST without /list should NOT be cached."""
+    cache = ResponseCache(ttl=60)
+    client._cache = cache
+    client._http.request.return_value = _resp(200, json_data={"campaigns": {}})
+
+    client.post("/sp/campaigns", "US", body={"campaigns": [{}]})
+    client.post("/sp/campaigns", "US", body={"campaigns": [{}]})
+
+    assert client._http.request.call_count == 2
+
+
+def test_put_invalidates_region_cache(client):
+    """PUT should invalidate all cached entries for that region."""
+    cache = ResponseCache(ttl=60)
+    client._cache = cache
+    client._http.request.return_value = _resp(200, json_data={"campaigns": []})
+
+    client.post("/sp/campaigns/list", "US", body={"maxResults": 100})
+    assert cache.size == 1
+
+    client.put("/sp/campaigns", "US", body={"campaigns": [{}]})
+    assert cache.size == 0
+
+
+def test_write_does_not_invalidate_other_region(client):
+    """A write to US should not invalidate DE cache."""
+    cache = ResponseCache(ttl=60)
+    client._cache = cache
+    client._http.request.return_value = _resp(200, json_data={"data": []})
+
+    client.post("/sp/campaigns/list", "US", body={"maxResults": 100})
+    client.post("/sp/campaigns/list", "DE", body={"maxResults": 100})
+    assert cache.size == 2
+
+    client.put("/sp/campaigns", "US", body={})
+    assert cache.size == 1
+
+
+def test_disabled_cache_passes_through(client):
+    """When cache is disabled, every request hits the network."""
+    cache = ResponseCache(enabled=False)
+    client._cache = cache
+    client._http.request.return_value = _resp(200, json_data={})
+
+    client.get("/test", "US")
+    client.get("/test", "US")
+
+    assert client._http.request.call_count == 2

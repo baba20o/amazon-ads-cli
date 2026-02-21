@@ -33,14 +33,11 @@ SUMMARY_COLUMNS = [
     "sales1d",
 ]
 
-# Keyword-level report columns
+# Keyword-level report columns (v3 API validated)
 KEYWORD_COLUMNS = [
     "date",
-    "campaignName",
-    "campaignId",
-    "adGroupName",
-    "adGroupId",
     "keywordId",
+    "keywordText",
     "keyword",
     "matchType",
     "impressions",
@@ -48,10 +45,9 @@ KEYWORD_COLUMNS = [
     "cost",
     "sales1d",
     "purchases1d",
-    "clickThroughRate",
-    "costPerClick",
-    "keywordBid",
-    "keywordStatus",
+    "unitsSoldClicks1d",
+    "unitsSoldSameSku1d",
+    "topOfSearchImpressionShare",
 ]
 
 # Search term report columns
@@ -74,16 +70,17 @@ SEARCH_TERM_COLUMNS = [
     "costPerClick",
 ]
 
-# Targeting report columns (product/category targets)
+# Targeting report columns (v3 API validated)
 TARGET_COLUMNS = [
     "date",
     "campaignName",
     "campaignId",
     "adGroupName",
     "adGroupId",
-    "targetId",
-    "targetingExpression",
-    "targetingType",
+    "keywordId",
+    "targeting",
+    "keywordType",
+    "matchType",
     "impressions",
     "clicks",
     "cost",
@@ -91,6 +88,7 @@ TARGET_COLUMNS = [
     "purchases1d",
     "clickThroughRate",
     "costPerClick",
+    "keywordBid",
 ]
 
 # Advertised product report columns
@@ -115,11 +113,17 @@ ADVERTISED_PRODUCT_COLUMNS = [
 # Mapping from reportTypeId → (columns, groupBy)
 REPORT_TYPE_DEFAULTS: dict[str, tuple[list[str], list[str]]] = {
     "spCampaigns": (DEFAULT_CAMPAIGN_COLUMNS, ["campaign"]),
-    "spKeywords": (KEYWORD_COLUMNS, ["keyword"]),
+    "spKeywords": (KEYWORD_COLUMNS, ["adGroup"]),
     "spSearchTerm": (SEARCH_TERM_COLUMNS, ["searchTerm"]),
     "spTargeting": (TARGET_COLUMNS, ["targeting"]),
     "spAdvertisedProduct": (ADVERTISED_PRODUCT_COLUMNS, ["advertiser"]),
 }
+
+
+class ReportFilter(BaseModel):
+    """A single filter for report configuration."""
+    field: str
+    values: list[str]
 
 
 class ReportConfiguration(BaseModel):
@@ -129,6 +133,7 @@ class ReportConfiguration(BaseModel):
     columns: list[str] = Field(default_factory=lambda: DEFAULT_CAMPAIGN_COLUMNS)
     report_type_id: str = Field(default="spCampaigns", alias="reportTypeId")
     time_unit: str = Field(default="DAILY", alias="timeUnit")  # DAILY or SUMMARY
+    filters: list[ReportFilter] | None = None
     format: str = "GZIP_JSON"
 
     model_config = {"populate_by_name": True}

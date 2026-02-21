@@ -14,6 +14,7 @@ from amazon_ads.client import AmazonAdsClient, CONTENT_TYPES
 from amazon_ads.models.reports import (
     CreateReportRequest,
     ReportConfiguration,
+    ReportFilter,
     REPORT_TYPE_DEFAULTS,
     SUMMARY_COLUMNS,
 )
@@ -39,6 +40,8 @@ class ReportingService:
         time_unit: str = "DAILY",
         report_type: str = "spCampaigns",
         group_by: list[str] | None = None,
+        campaign_ids: list[str] | None = None,
+        ad_group_ids: list[str] | None = None,
     ) -> str:
         """Create an async report and return the report ID.
 
@@ -50,6 +53,8 @@ class ReportingService:
             time_unit: DAILY or SUMMARY.
             report_type: Report type ID (spCampaigns, spKeywords, etc.).
             group_by: Grouping dimensions.
+            campaign_ids: Filter by campaign ID(s).
+            ad_group_ids: Filter by ad group ID(s).
 
         Returns:
             The report ID string.
@@ -58,12 +63,21 @@ class ReportingService:
         default_columns, default_group_by = REPORT_TYPE_DEFAULTS.get(
             report_type, (SUMMARY_COLUMNS, ["campaign"])
         )
+
+        # Build filters
+        filters: list[ReportFilter] = []
+        if campaign_ids:
+            filters.append(ReportFilter(field="campaignId", values=campaign_ids))
+        if ad_group_ids:
+            filters.append(ReportFilter(field="adGroupId", values=ad_group_ids))
+
         config = ReportConfiguration(
             adProduct="SPONSORED_PRODUCTS",
             groupBy=group_by or default_group_by,
             columns=columns or default_columns,
             reportTypeId=report_type,
             timeUnit=time_unit,
+            filters=filters if filters else None,
             format="GZIP_JSON",
         )
         request = CreateReportRequest(

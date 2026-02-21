@@ -17,6 +17,9 @@ def fake_settings() -> Settings:
         refresh_token="test-refresh-token-na",
         refresh_token_eu="test-refresh-token-eu",
         backup_dir="./test-backups",
+        cache_ttl=300,
+        cache_enabled=True,
+        queue_dir="./test-data",
     )
 
 
