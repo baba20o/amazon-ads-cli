@@ -43,6 +43,8 @@ def create_report(
     ad_group_id: Annotated[str | None, typer.Option("--ad-group-id", help="Filter by ad group ID(s), comma-separated")] = None,
     columns: Annotated[str | None, typer.Option("--columns", help="Comma-separated column list")] = None,
     wait: Annotated[bool, typer.Option("--wait/--no-wait", help="Wait for report completion and download")] = False,
+    poll_interval: Annotated[int, typer.Option("--poll-interval", help="Seconds between status checks when waiting")] = 30,
+    max_wait: Annotated[int, typer.Option("--max-wait", help="Maximum seconds to wait when waiting")] = 1800,
     output: Annotated[OutputFormat, typer.Option("--output", "-o")] = OutputFormat.TABLE,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
@@ -72,7 +74,7 @@ def create_report(
             return
 
         console.print(f"Report submitted: {report_id}. Polling for completion...")
-        rows = service.wait_and_download(region, report_id)
+        rows = service.wait_and_download(region, report_id, poll_interval=poll_interval, max_wait=max_wait)
         console.print(f"Report downloaded: {len(rows)} rows")
         print_output(rows, output, title=f"Report ({region})")
     except RuntimeError as e:
@@ -87,6 +89,8 @@ def report_status(
     report_id: Annotated[str, typer.Option("--report-id", help="Report ID to check")] = ...,
     region: Annotated[str, typer.Option("--region", "-r")] = "US",
     wait: Annotated[bool, typer.Option("--wait/--no-wait", help="Wait and download when ready")] = False,
+    poll_interval: Annotated[int, typer.Option("--poll-interval", help="Seconds between status checks when waiting")] = 30,
+    max_wait: Annotated[int, typer.Option("--max-wait", help="Maximum seconds to wait when waiting")] = 1800,
     output: Annotated[OutputFormat, typer.Option("--output", "-o")] = OutputFormat.TABLE,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
@@ -99,7 +103,7 @@ def report_status(
             return
 
         console.print(f"Waiting for report {report_id}...")
-        rows = service.wait_and_download(region, report_id)
+        rows = service.wait_and_download(region, report_id, poll_interval=poll_interval, max_wait=max_wait)
         console.print(f"Report downloaded: {len(rows)} rows")
         print_output(rows, output, title=f"Report ({region})")
     except RuntimeError as e:
@@ -115,6 +119,8 @@ def performance_summary(
     timeframe: Annotated[str, typer.Option("--timeframe", "-t", help="daily, monthly, yearly, or custom")] = "daily",
     start_date: Annotated[str | None, typer.Option("--start-date", help="Start date for custom timeframe")] = None,
     end_date: Annotated[str | None, typer.Option("--end-date", help="End date for custom timeframe")] = None,
+    poll_interval: Annotated[int, typer.Option("--poll-interval", help="Seconds between status checks")] = 30,
+    max_wait: Annotated[int, typer.Option("--max-wait", help="Maximum seconds to wait per report")] = 1800,
     output: Annotated[OutputFormat, typer.Option("--output", "-o")] = OutputFormat.TABLE,
     verbose: Annotated[bool, typer.Option("--verbose", "-v")] = False,
 ) -> None:
@@ -131,6 +137,8 @@ def performance_summary(
                 timeframe=timeframe.lower(),
                 start_date=start_date,
                 end_date=end_date,
+                poll_interval=poll_interval,
+                max_wait=max_wait,
             )
             summaries.append(summary)
 

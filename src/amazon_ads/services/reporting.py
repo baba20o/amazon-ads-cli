@@ -116,7 +116,7 @@ class ReportingService:
         region: str,
         report_id: str,
         poll_interval: int = 30,
-        max_wait: int = 600,
+        max_wait: int = 1800,
     ) -> list[dict[str, Any]]:
         """Poll until report is ready, then download and decompress.
 
@@ -155,6 +155,8 @@ class ReportingService:
         timeframe: str = "daily",
         start_date: str | None = None,
         end_date: str | None = None,
+        poll_interval: int = 30,
+        max_wait: int = 1800,
     ) -> dict[str, Any]:
         """Get a performance summary with ACoS calculation.
 
@@ -194,7 +196,7 @@ class ReportingService:
             report_type="spCampaigns",
         )
 
-        rows = self.wait_and_download(region, report_id)
+        rows = self.wait_and_download(region, report_id, poll_interval=poll_interval, max_wait=max_wait)
 
         # Calculate totals
         total_cost = sum(float(r.get("cost", 0)) for r in rows)

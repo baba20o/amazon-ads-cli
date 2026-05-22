@@ -59,6 +59,36 @@ def test_summary_error():
     assert result.exit_code == 1
 
 
+def test_summary_passes_wait_options():
+    svc = MagicMock()
+    svc.get_performance_summary.return_value = {
+        "region": "US",
+        "startDate": "2025-01-01",
+        "endDate": "2025-01-01",
+        "totalCost": 0.0,
+        "totalSales": 0.0,
+        "totalImpressions": 0,
+        "totalClicks": 0,
+        "acos": 0.0,
+        "campaignCount": 0,
+    }
+
+    with patch("amazon_ads.commands.reports_cmd._build_client", return_value=_mock_build(svc)):
+        result = runner.invoke(app, [
+            "summary", "--region", "US", "--poll-interval", "5", "--max-wait", "900", "--output", "json",
+        ])
+
+    assert result.exit_code == 0
+    svc.get_performance_summary.assert_called_once_with(
+        region="US",
+        timeframe="daily",
+        start_date=None,
+        end_date=None,
+        poll_interval=5,
+        max_wait=900,
+    )
+
+
 # ── create with filters ──────────────────────────────────────────────
 
 def test_create_with_campaign_filter():
