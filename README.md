@@ -144,7 +144,7 @@ API keys resolve from `--api-key` flag or environment variables (`ANTHROPIC_API_
 ```bash
 # Ad group level
 amazon-ads negatives list --region US --ad-group-id 456
-amazon-ads negatives create --region US -c 123 -a 456 --keyword-text "bad keyword" --match-type EXACT
+amazon-ads negatives create --region US -c 123 -a 456 --keyword-text "bad keyword" --match-type NEGATIVE_EXACT
 amazon-ads negatives delete --region US --keyword-id 789
 
 # Campaign level
@@ -178,19 +178,24 @@ amazon-ads product-ads create --region US -c 123 -a 456 --asin B0ABC123
 ### Bids
 
 ```bash
-# Backup current keyword bids
+# Backup current enabled keyword bids (writes {REGION}-{YYYY-MM-DD}.json and .csv to ./backups, or --dir)
 amazon-ads bids backup --region ALL
 
-# Bulk update bids
-amazon-ads bids update --region US --bid-value 0.50 --state ENABLED --dry-run
+# Set every enabled keyword to one bid (optionally limit with --campaign-id)
+amazon-ads bids update --region US --target-bid 0.50 --dry-run
 
-# Restore from backup
-amazon-ads bids restore --region US --file backups/US_keywords_2024-01-15.json --dry-run
+# Restore from backup (one region per file)
+amazon-ads bids restore --region US --file backups/US-2024-01-15.json --dry-run
 
-# Fix auto-targeting overbids (reduce to recommended bid)
-amazon-ads bids fix-auto --region US --dry-run
-amazon-ads bids fix-auto --region ALL
+# Audit auto-targeting bid overrides vs. ad group default bid (read-only)
+amazon-ads bids audit --region ALL
+
+# Reset those overrides to the ad group default bid
+amazon-ads bids audit --region US --fix --dry-run
+amazon-ads bids audit --region US --fix
 ```
+
+Backups are named by region and date only, so running `bids backup` again on the same day overwrites that day's file for the region.
 
 ### Reports
 
@@ -210,9 +215,18 @@ amazon-ads reports create --region US --report-type spCampaigns \
 # Check report status
 amazon-ads reports status --region US --report-id abc123
 
+# Wait for an existing report, then print its rows
+amazon-ads reports status --region US --report-id abc123 --wait
+
+# Tune waiting (defaults: --poll-interval 30, --max-wait 1800 seconds)
+amazon-ads reports create --region US --report-type spCampaigns \
+  --start-date 2025-01-01 --end-date 2025-01-31 --wait --poll-interval 60 --max-wait 3600
+
 # Performance summary with ACoS
 amazon-ads reports summary --region ALL --timeframe monthly
 ```
+
+`--wait` (on `create` and `status`) and `reports summary` poll until the report is `COMPLETED`. They exit non-zero if the report ends in `FAILURE`/`CANCELLED` or is still not ready after `--max-wait` seconds; `summary` applies `--max-wait` to each region's report, and with `--region ALL` one failed or timed-out region stops the command without printing the regions already summarized. A timeout does not cancel the Amazon report — `create` prints the report ID to stderr, so you can check it later with `reports status`.
 
 Report types: `spCampaigns`, `spKeywords`, `spSearchTerm`, `spTargeting`, `spAdvertisedProduct`
 
@@ -254,13 +268,18 @@ amazon-ads reports clean --all
 
 Downloaded reports are saved to `data/reports/` as JSON files, named `{region}-{type}-{startDate}-{shortId}.json`.
 
-Queue state is persisted in `data/report_queue.json`. Status lifecycle: `SUBMITTED` -> `PROCESSING` -> `COMPLETED` -> `DOWNLOADED`.
+Queue state is persisted in `data/report_queue.json`. Status lifecycle: `SUBMITTED` -> `PROCESSING` -> `COMPLETED` -> `DOWNLOADED`. `data/` is relative to the current working directory; set `AMAZON_ADS_QUEUE_DIR` to use another location (`scripts/analyze_3mo.py` still reads `./data/reports/`).
+
+`reports poll` only revisits entries that are still `SUBMITTED` or `PROCESSING`. A report recorded as `COMPLETED` by `poll --no-download` is not picked up by a later `poll`; fetch it with `reports download`. `reports clean` removes queue entries by submission age (default `--days 30`) regardless of status; it does not delete files in `data/reports/`.
 
 ### Optimization
 
 ```bash
-# Get bid recommendations and auto-reduce overbids
+# Preview overbid keywords (current bid above suggested bid + --offset, default 0.02)
 amazon-ads optimize run --region US --dry-run
+
+# Apply the reductions (without --apply, run only previews)
+amazon-ads optimize run --region US --apply
 
 # Compare current bids vs. suggested
 amazon-ads optimize compare --region US --campaign-id 123
@@ -272,12 +291,14 @@ amazon-ads optimize compare --region US --campaign-id 123
 # Export campaign structure to JSON
 amazon-ads sync export --region US --save us-campaigns.json
 
-# Replicate structure to other regions
-amazon-ads sync replicate --from-file us-campaigns.json --region ALL --dry-run
+# Replicate structure to other regions (ALL = every region except --source, default US)
+amazon-ads sync replicate --source US --from-file us-campaigns.json --target ALL --dry-run
 
-# Sync keywords by campaign name across regions
-amazon-ads sync keywords --source US --target DE --campaign-name "My Campaign" --dry-run
+# Copy enabled keywords by exact campaign/ad group name (copies get --bid, default 0.30, not the source bids)
+amazon-ads sync keywords --source US --target DE --campaign "My Campaign" --dry-run
 ```
+
+`sync keywords --dry-run` only echoes the source and target regions; it does not list the keywords that would be copied.
 
 ### Product Onboarding
 
